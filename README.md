@@ -1,1 +1,2 @@
 # Entropy-Coding-analysis-using-CABAC-and-ANS
+This repository contains the source code and experimental framework for analyzing and comparing two prominent entropy coding algorithms: Context-adaptive Binary Arithmetic Coding (CABAC) and Asymmetric Numeral Systems (ANS).This study focuses on the algorithmic evaluation of entropy coding in video compression pipelines. By isolating the coding cores, we compare CABAC (based on range subdivision) and ANS (based on state-based integer numeral systems
