@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from collections import Counter
 
 class VideoSystemProcessor:
-    def __init__(self, input_path="data/input_video.y4m", width=352, height=288, fps=30):
+    def __init__(self, input_path="data/input_video.y4m", width=352, height=288, fps=30, total_frames=30):
         self.input_path = input_path
         self.width = width
         self.height = height
@@ -13,15 +13,17 @@ class VideoSystemProcessor:
         self.frame_size_uv = (width // 2) * (height // 2) * 2
         self.frames_y = []
         self.residuals = []
+        self.total_frames = total_frames 
         os.makedirs("data/output_videos", exist_ok=True)
 
-    def prepare_mock_data(self, total_frames=30):
-        """Generates mock dynamic Y4M video file if not existing"""
+    def prepare_mock_data(self):
+        """Generates mock dynamic Y4M video file based on total_frames configured"""
         if not os.path.exists(self.input_path):
             print(f"INFO: Generating mock video data at {self.input_path}")
             with open(self.input_path, "wb") as f:
                 f.write(f"YUV4MPEG2 W{self.width} H{self.height} F{self.fps}:1 Ip C420mpeg2\n".encode())
-                for i in range(total_frames):
+                # Đã cập nhật dòng này thành self.total_frames
+                for i in range(self.total_frames):
                     f.write(b"FRAME\n")
                     y_data = np.full((self.height, self.width), 128, dtype=np.uint8)
                     cv2.circle(y_data, (60 + i*7, 144), 35 + (i % 6) * 3, 210, -1)
