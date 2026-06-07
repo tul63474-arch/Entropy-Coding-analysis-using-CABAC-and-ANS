@@ -1,3 +1,6 @@
+import cv2
+import numpy as np
+
 class VideoProcessor:
     def __init__(self, file_path):
         self.file_path = file_path
@@ -12,17 +15,21 @@ class VideoProcessor:
         v_data = f.read(uv_size)
         if len(u_data) < uv_size or len(v_data) < uv_size:
             return None
+        
         y = np.frombuffer(y_data, dtype=np.uint8).reshape(height, width)
         u = np.frombuffer(u_data, dtype=np.uint8).reshape(height//2, width//2)
         v = np.frombuffer(v_data, dtype=np.uint8).reshape(height//2, width//2)
+        
         u = cv2.resize(u, (width, height), interpolation=cv2.INTER_LINEAR)
         v = cv2.resize(v, (width, height), interpolation=cv2.INTER_LINEAR)
         y = y.astype(np.float32) / 255.0
         u = u.astype(np.float32) / 255.0 - 0.5
         v = v.astype(np.float32) / 255.0 - 0.5
+        
         r = y + 1.402 * v
         g = y - 0.344 * u - 0.714 * v
         b = y + 1.772 * u
+        
         rgb = np.stack([r, g, b], axis=2)
         rgb = np.clip(rgb, 0, 1)
         return rgb
@@ -35,29 +42,7 @@ class VideoProcessor:
             line = f.readline()
         if not line:
             return None
-        y_size = width * height
-        uv_size = y_size // 4
-        y_data = f.read(y_size)
-        if len(y_data) < y_size:
-            return None
-        u_data = f.read(uv_size)
-        v_data = f.read(uv_size)
-        if len(u_data) < uv_size or len(v_data) < uv_size:
-            return None
-        y = np.frombuffer(y_data, dtype=np.uint8).reshape(height, width)
-        u = np.frombuffer(u_data, dtype=np.uint8).reshape(height//2, width//2)
-        v = np.frombuffer(v_data, dtype=np.uint8).reshape(height//2, width//2)
-        u = cv2.resize(u, (width, height), interpolation=cv2.INTER_LINEAR)
-        v = cv2.resize(v, (width, height), interpolation=cv2.INTER_LINEAR)
-        y = y.astype(np.float32) / 255.0
-        u = u.astype(np.float32) / 255.0 - 0.5
-        v = v.astype(np.float32) / 255.0 - 0.5
-        r = y + 1.402 * v
-        g = y - 0.344 * u - 0.714 * v
-        b = y + 1.772 * u
-        rgb = np.stack([r, g, b], axis=2)
-        rgb = np.clip(rgb, 0, 1)
-        return rgb
+        return self.read_yuv_frame(f, width, height)
     
     def extract_features(self, frame):
         h, w = frame.shape[:2]
@@ -80,7 +65,6 @@ class VideoProcessor:
         return symbols, contexts
     
     def process(self, max_frames, width, height):
-        print(f"Processing video file...")
         all_symbols = []
         all_contexts = []
         frames_rgb = []
@@ -102,11 +86,5 @@ class VideoProcessor:
                 all_symbols.extend(symbols)
                 all_contexts.extend(contexts)
                 frames_loaded += 1
-                if (frame_num + 1) % 10 == 0:
-                    print(f"  Processed {frame_num + 1} frames...")
         
-        print(f"Loaded {frames_loaded} frames")
-        print(f"Generated {len(all_symbols)} symbols")
         return all_symbols, all_contexts, frames_loaded, frames_rgb
-
-print(" Video Processor defined!")
