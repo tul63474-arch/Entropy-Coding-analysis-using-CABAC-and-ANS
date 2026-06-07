@@ -1,66 +1,112 @@
-import os, sys, time, math, cv2
-import numpy as np
-import matplotlib.pyplot as plt
-from collections import Counter
+class VideoProcessor:
+    def __init__(self, file_path):
+        self.file_path = file_path
+        
+    def read_yuv_frame(self, f, width, height):
+        y_size = width * height
+        uv_size = y_size // 4
+        y_data = f.read(y_size)
+        if len(y_data) < y_size:
+            return None
+        u_data = f.read(uv_size)
+        v_data = f.read(uv_size)
+        if len(u_data) < uv_size or len(v_data) < uv_size:
+            return None
+        y = np.frombuffer(y_data, dtype=np.uint8).reshape(height, width)
+        u = np.frombuffer(u_data, dtype=np.uint8).reshape(height//2, width//2)
+        v = np.frombuffer(v_data, dtype=np.uint8).reshape(height//2, width//2)
+        u = cv2.resize(u, (width, height), interpolation=cv2.INTER_LINEAR)
+        v = cv2.resize(v, (width, height), interpolation=cv2.INTER_LINEAR)
+        y = y.astype(np.float32) / 255.0
+        u = u.astype(np.float32) / 255.0 - 0.5
+        v = v.astype(np.float32) / 255.0 - 0.5
+        r = y + 1.402 * v
+        g = y - 0.344 * u - 0.714 * v
+        b = y + 1.772 * u
+        rgb = np.stack([r, g, b], axis=2)
+        rgb = np.clip(rgb, 0, 1)
+        return rgb
+    
+    def read_y4m_frame(self, f, width, height):
+        line = f.readline()
+        while line and not line.startswith(b'FRAME'):
+            if not line:
+                return None
+            line = f.readline()
+        if not line:
+            return None
+        y_size = width * height
+        uv_size = y_size // 4
+        y_data = f.read(y_size)
+        if len(y_data) < y_size:
+            return None
+        u_data = f.read(uv_size)
+        v_data = f.read(uv_size)
+        if len(u_data) < uv_size or len(v_data) < uv_size:
+            return None
+        y = np.frombuffer(y_data, dtype=np.uint8).reshape(height, width)
+        u = np.frombuffer(u_data, dtype=np.uint8).reshape(height//2, width//2)
+        v = np.frombuffer(v_data, dtype=np.uint8).reshape(height//2, width//2)
+        u = cv2.resize(u, (width, height), interpolation=cv2.INTER_LINEAR)
+        v = cv2.resize(v, (width, height), interpolation=cv2.INTER_LINEAR)
+        y = y.astype(np.float32) / 255.0
+        u = u.astype(np.float32) / 255.0 - 0.5
+        v = v.astype(np.float32) / 255.0 - 0.5
+        r = y + 1.402 * v
+        g = y - 0.344 * u - 0.714 * v
+        b = y + 1.772 * u
+        rgb = np.stack([r, g, b], axis=2)
+        rgb = np.clip(rgb, 0, 1)
+        return rgb
+    
+    def extract_features(self, frame):
+        h, w = frame.shape[:2]
+        symbols = []
+        contexts = []
+        for i in range(0, h, 16):
+            for j in range(0, w, 16):
+                if i+16 <= h and j+16 <= w:
+                    block = frame[i:i+16, j:j+16, 0]
+                    residual = np.std(block)
+                    symbol = int(residual * 10)
+                    symbol = min(10, max(0, symbol))
+                    symbols.append(symbol)
+                    if residual < 0.1:
+                        contexts.append(0)
+                    elif residual < 0.3:
+                        contexts.append(1)
+                    else:
+                        contexts.append(2)
+        return symbols, contexts
+    
+    def process(self, max_frames, width, height):
+        print(f"Processing video file...")
+        all_symbols = []
+        all_contexts = []
+        frames_rgb = []
+        frames_loaded = 0
+        is_y4m = self.file_path.endswith('.y4m')
+        
+        with open(self.file_path, 'rb') as f:
+            if is_y4m:
+                f.readline()
+            for frame_num in range(max_frames):
+                if is_y4m:
+                    frame = self.read_y4m_frame(f, width, height)
+                else:
+                    frame = self.read_yuv_frame(f, width, height)
+                if frame is None:
+                    break
+                frames_rgb.append(frame)
+                symbols, contexts = self.extract_features(frame)
+                all_symbols.extend(symbols)
+                all_contexts.extend(contexts)
+                frames_loaded += 1
+                if (frame_num + 1) % 10 == 0:
+                    print(f"  Processed {frame_num + 1} frames...")
+        
+        print(f"Loaded {frames_loaded} frames")
+        print(f"Generated {len(all_symbols)} symbols")
+        return all_symbols, all_contexts, frames_loaded, frames_rgb
 
-class VideoSystemProcessor:
-    def __init__(self, input_path="data/input_video.y4m", width=352, height=288, fps=30, total_frames=30):
-        self.input_path = input_path
-        self.width = width
-        self.height = height
-        self.fps = fps
-        self.frame_size_y = width * height
-        self.frame_size_uv = (width // 2) * (height // 2) * 2
-        self.frames_y = []
-        self.residuals = []
-        self.total_frames = total_frames 
-        os.makedirs("data/output_videos", exist_ok=True)
-
-    def prepare_mock_data(self):
-        """Generates mock dynamic Y4M video file based on total_frames configured"""
-        if not os.path.exists(self.input_path):
-            print(f"INFO: Generating mock video data at {self.input_path}")
-            with open(self.input_path, "wb") as f:
-                f.write(f"YUV4MPEG2 W{self.width} H{self.height} F{self.fps}:1 Ip C420mpeg2\n".encode())
-                # Đã cập nhật dòng này thành self.total_frames
-                for i in range(self.total_frames):
-                    f.write(b"FRAME\n")
-                    y_data = np.full((self.height, self.width), 128, dtype=np.uint8)
-                    cv2.circle(y_data, (60 + i*7, 144), 35 + (i % 6) * 3, 210, -1)
-                    f.write(y_data.tobytes() + np.full((self.frame_size_uv,), 128, dtype=np.uint8).tobytes())
-
-    def parse_raw_video(self):
-        """Parses raw video input stream"""
-        self.prepare_mock_data()
-        with open(self.input_path, "rb") as f:
-            first_line = f.readline()
-            if b"YUV4MPEG2" in first_line:
-                for token in first_line.decode('utf-8').split():
-                    if token.startswith('W'): self.width = int(token[1:])
-                    if token.startswith('H'): self.height = int(token[1:])
-                self.frame_size_y = self.width * self.height
-                while True:
-                    if b"FRAME" not in f.readline(): break
-                    y_bytes = f.read(self.frame_size_y)
-                    if len(y_bytes) < self.frame_size_y: break
-                    self.frames_y.append(np.frombuffer(y_bytes, dtype=np.uint8).reshape((self.height, self.width)))
-                    f.read(self.frame_size_uv)
-            else:
-                f.seek(0)
-                while True:
-                    y_bytes = f.read(self.frame_size_y)
-                    if len(y_bytes) < self.frame_size_y: break
-                    self.frames_y.append(np.frombuffer(y_bytes, dtype=np.uint8).reshape((self.height, self.width)))
-                    f.read(self.frame_size_uv)
-        print(f"SUCCESS: Extracted {len(self.frames_y)} raw frames")
-        return self.frames_y
-
-    def extract_motion_residuals(self):
-        """Extracts inter-frame residuals"""
-        if not self.frames_y:
-            self.parse_raw_video()
-        self.residuals = [self.frames_y[i].astype(np.int16) - self.frames_y[i-1].astype(np.int16) for i in range(1, len(self.frames_y))]
-        print(f"SUCCESS: Generated {len(self.residuals)} residual matrices")
-        return self.residuals
-
-print("STATUS: VideoSystemProcessor initialized")
+print(" Video Processor defined!")
